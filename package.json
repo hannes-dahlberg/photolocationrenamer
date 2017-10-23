@@ -10,6 +10,7 @@
     "test": "test"
   },
   "dependencies": {
+    "count-files": "^2.6.2",
     "exif": "^0.6.0",
     "fs-extra": "^4.0.2",
     "js-yaml": "^3.10.0",

@@ -1,11 +1,11 @@
 let fs = require('fs-extra')
 let yaml = require('js-yaml')
 let xml2js = require('xml2js')
-var ExifImage = require('exif').ExifImage;
-var inside = require('point-in-polygon');
+let countFiles = require('count-files')
+let ExifImage = require('exif').ExifImage;
+let inside = require('point-in-polygon');
 
 let prom = require('./libs/prom')
-
 
 //Read config file
 let argv = require('yargs').option('config', {
@@ -48,6 +48,8 @@ fs.readdirSync(configs['kml_path']).forEach(file => {
 
     xmlParser.parseString(fs.readFileSync(configs['kml_path'] + '/' + file, 'utf8'), (error, result) => {
         if(error) { console.log(error); return; }
+
+        console.log('Parsing ' + configs['kml_path'] + '/' + file)
         result.kml.Document[0].Folder[0].Placemark.forEach(placemark => {
             var simpleData = placemark.ExtendedData[0].SchemaData[0].SimpleData
             var place = {}
@@ -91,75 +93,117 @@ fs.readdirSync(configs['kml_path']).forEach(file => {
             }
 
             place.polygons = polygons
+            var placeName = place[configs['kml_field_for_filename']] || place[Object.keys(place).find(item => item != 'polygon')]
+            console.log('Registered place "' + placeName + '"')
             places.push(place)
         })
     })
 })
 
-var photos = []
+console.log('Registered ' + places.length + ' places')
+
+var totalPhotos = 0
+var photoCounter = 0
 var promises = []
-fs.readdirSync(configs['source']).forEach(file => {
-    var fileExtension = file.substr(file.lastIndexOf('.') + 1, file.length).toLowerCase()
+var nameCounter = {}
+var noNameCounter = 0
+var readDir = (path) => {
+    fs.readdirSync(path).forEach(file => {
+        var fileExtension = file.substr(file.lastIndexOf('.') + 1, file.length).toLowerCase()
 
-    if(fileExtension != 'jpg' && fileExtension != 'jpeg') { return; }
-    promises.push(() => {
-        return new Promise((resolve, reject) => {
-            new ExifImage({ image : configs['source'] + '/' + file }, (error, exifData) => {
-                if(exifData) {
-                    var lat = exifData.gps.GPSLatitude[0] + (exifData.gps.GPSLatitude[1] / 60) + (exifData.gps.GPSLatitude[2] / 3600)
-                    var lon = exifData.gps.GPSLongitude[0] + (exifData.gps.GPSLongitude[1] / 60) + (exifData.gps.GPSLongitude[2] / 3600)
+        //If file path is directory. Invoke itself
+        if(fs.lstatSync(path + '/' + file).isDirectory()) {
+            readDir(path + '/' + file)
+            return
+        }
+        if(fileExtension != 'jpg' && fileExtension != 'jpeg') { return; }
+        promises.push(() => {
+            return new Promise((resolve, reject) => {
+                photoCounter++
+                new ExifImage({ image : path + '/' + file }, (error, exifData) => {
+                    if(exifData) {
+                        var photo = {}
 
-                    var place = places.find(place => {
-                        //if(place.Namn != 'Berga torrängar') { return false; }
-                        var found = false
-                        place.polygons.forEach(polygon => {
-                            if(inside([lat, lon], polygon.outer.map(coordinate => [parseFloat(coordinate.lat), parseFloat(coordinate.lon)]))) {
-                                found = true
-                                /*if(polygon.inner) {
-                                    polygon.inner.forEach(polygon => {
-                                        if(!inside([lat, lon], polygon.map(coordinate => [coordinate.lat, coordinate.lon]))) {
-                                            found = false
-                                        }
-                                    })
-                                }*/
-                            }
+                        var lat = exifData.gps.GPSLatitude[0] + (exifData.gps.GPSLatitude[1] / 60) + (exifData.gps.GPSLatitude[2] / 3600)
+                        var lon = exifData.gps.GPSLongitude[0] + (exifData.gps.GPSLongitude[1] / 60) + (exifData.gps.GPSLongitude[2] / 3600)
+
+                        var place = places.find(place => {
+                            //if(place.Namn != 'Berga torrängar') { return false; }
+                            var found = false
+                            place.polygons.forEach(polygon => {
+                                if(inside([lat, lon], polygon.outer.map(coordinate => [parseFloat(coordinate.lat), parseFloat(coordinate.lon)]))) {
+                                    found = true
+                                    /*if(polygon.inner) {
+                                        polygon.inner.forEach(polygon => {
+                                            if(!inside([lat, lon], polygon.map(coordinate => [coordinate.lat, coordinate.lon]))) {
+                                                found = false
+                                            }
+                                        })
+                                    }*/
+                                }
+                            })
+                            return found
                         })
-                        return found
-                    })
-                    if(place) {
-                        photos.push({ file: file, fileExtension: fileExtension, place: place })
-                        //console.log('Found ' + place.Namn + ' for image ' + file)
-                    } else {
-                        photos.push({ file: file, fileExtension: fileExtension })
-                        //console.log('Could not find location for ' + file)
+
+                        var name = null
+                        var foundName = null
+                        if(place && place[configs['kml_field_for_filename']]) {
+                            foundName = true
+                            name = place[configs['kml_field_for_filename']].replace(/ /g, "_").toLowerCase();
+                            if(!nameCounter[name]) { nameCounter[name] = 0; }
+                            nameCounter[name]++
+                        } else {
+                            foundName = false
+                            name = '_unknown'
+                            noNameCounter++
+                        }
+                        var fileName = name + '_' + (foundName ? nameCounter[name] : noNameCounter) + '.' + fileExtension;
+
+                        fs.copy(path + '/' + file, configs['destination'] + '/' + fileName, (error) => {
+                            if(error) { console.log(error); }
+                            console.log(Math.round(photoCounter / totalPhotos * 100).toString() + '% Copied ' + path  + '/' + file + ' to ' + configs['destination'] + '/' + fileName)
+                            resolve()
+                        })
                     }
-                    resolve();
-                }
+                })
             })
         })
     })
-})
+}
 
-prom.sequence(promises).then(() => {
-    //Moving and renaming photos
-    var nameCounter = {}
-    var noNameCounter = 0
-    photos.forEach((photo, index) => {
-        var name = null
-        var foundName = null
-        if(configs['kml_field_for_filename'] && photo.place) {
-            foundName = true
-            name = photo.place[configs['kml_field_for_filename']].replace(/ /g, "_").toLowerCase();
-            if(!nameCounter[name]) { nameCounter[name] = 0; }
-            nameCounter[name]++
-        } else {
-            foundName = false
-            name = 'unknown'
-            noNameCounter++
-        }
-        var fileName = name + '_' + (foundName ? nameCounter[name] : noNameCounter) + '.' + photo.fileExtension;
-        fs.copy(configs['source'] + '/' + photo.file, configs['destination'] + '/' + fileName, (error) => {
+var sources = []
+if(Object.prototype.toString.call(configs['source']) != '[object Array]') {
+    sources.push(configs['source'])
+} else {
+    sources = configs['source']
+}
+
+//Count all the files in all sources
+prom.sequence(sources.map(source => () => {
+    return new Promise((resolve, reject) => {
+        countFiles(source, {
+            ignore(file) {
+                var fileExtension = file.substr(file.lastIndexOf('.') + 1, file.length).toLowerCase()
+                if(!fs.lstatSync(file).isDirectory() && fileExtension != 'jpg' && fileExtension != 'jpeg') { return true; }
+
+                return false
+            }
+        }, (error, result) => {
             if(error) { console.log(error); }
+
+            totalPhotos += result.files
+            resolve()
         })
     })
+})).then(() => {
+    console.log('Found ' + totalPhotos + ' photos')
+
+    //Invoke readDir method with source path
+    sources.forEach(source => {
+        readDir(source)
+    })
+    prom.sequence(promises).then(() => {
+        console.log('Done!')
+    })
 })
+
