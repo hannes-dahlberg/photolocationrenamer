@@ -1,0 +1,4 @@
+kml_path: ./kml
+kml_field_for_filename: Namn
+source: ./photos
+destination: ./out
