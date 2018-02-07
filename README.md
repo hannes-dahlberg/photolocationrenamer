@@ -20,6 +20,7 @@ kml_path:
 kml_field_for_filename:
 source:
 destination:
+group:
 ```
 
 ###Options:

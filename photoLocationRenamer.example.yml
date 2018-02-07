@@ -3,3 +3,4 @@ kml_field_for_filename: Namn
 source:
     - ./photos
 destination: ./out
+group: true

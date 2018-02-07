@@ -20,6 +20,8 @@ let argv = require('yargs').option('config', {
     description: 'Path to photos source folder'
 }).option('destination', {
     description: 'Path to destination output folder'
+}).options('group', {
+    description: 'Group output per kml file name'
 }).argv
 
 var configPath = argv.config
@@ -32,6 +34,8 @@ if(argv.kml) { configs['kml_path'] = argv.kml}
 if(argv.field) { configs['kml_field_for_filename'] = argv.field}
 if(argv.source) { configs['source'] = argv.source}
 if(argv.destination) { configs['destination'] = argv.destination}
+if(argv.destination) { configs['destination'] = argv.destination}
+if(argv.group) { configs['group'] = argv.group}
 
 if(!configs['kml_path'] || !configs['kml_field_for_filename'] || !configs['source'] || !configs['destination']) {
     throw new Error('Missing configs')
@@ -93,6 +97,7 @@ fs.readdirSync(configs['kml_path']).forEach(file => {
             }
 
             place.polygons = polygons
+            place.file = file.substr(0, file.length - 4)
             var placeName = place[configs['kml_field_for_filename']] || place[Object.keys(place).find(item => item != 'polygon')]
             console.log('Registered place "' + placeName + '"')
             places.push(place)
@@ -124,8 +129,12 @@ var readDir = (path) => {
                     if(exifData) {
                         var photo = {}
 
-                        var lat = exifData.gps.GPSLatitude[0] + (exifData.gps.GPSLatitude[1] / 60) + (exifData.gps.GPSLatitude[2] / 3600)
-                        var lon = exifData.gps.GPSLongitude[0] + (exifData.gps.GPSLongitude[1] / 60) + (exifData.gps.GPSLongitude[2] / 3600)
+                        var lat = null
+                        var lon = null
+                        if(exifData && exifData.gps && exifData.gps.GPSLatitude) {
+                            lat = exifData.gps.GPSLatitude[0] + (exifData.gps.GPSLatitude[1] / 60) + (exifData.gps.GPSLatitude[2] / 3600)
+                            lon = exifData.gps.GPSLongitude[0] + (exifData.gps.GPSLongitude[1] / 60) + (exifData.gps.GPSLongitude[2] / 3600)
+                        }
 
                         var place = places.find(place => {
                             //if(place.Namn != 'Berga torrängar') { return false; }
@@ -146,10 +155,12 @@ var readDir = (path) => {
                         })
 
                         var name = null
+                        var groupName = null
                         var foundName = null
-                        if(place && place[configs['kml_field_for_filename']]) {
+                        if(lat && lon && place && place[configs['kml_field_for_filename']]) {
                             foundName = true
                             name = place[configs['kml_field_for_filename']].replace(/ /g, "_").toLowerCase();
+                            groupName = place.file
                             if(!nameCounter[name]) { nameCounter[name] = 0; }
                             nameCounter[name]++
                         } else {
@@ -159,7 +170,7 @@ var readDir = (path) => {
                         }
                         var fileName = name + '_' + (foundName ? nameCounter[name] : noNameCounter) + '.' + fileExtension;
 
-                        fs.copy(path + '/' + file, configs['destination'] + '/' + fileName, (error) => {
+                        fs.copy(path + '/' + file, configs['destination'] + '/' + (configs['group'] && groupName ? groupName + '/' : '') + fileName, (error) => {
                             if(error) { console.log(error); }
                             console.log(Math.round(photoCounter / totalPhotos * 100).toString() + '% Copied ' + path  + '/' + file + ' to ' + configs['destination'] + '/' + fileName)
                             resolve()
