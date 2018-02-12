@@ -170,9 +170,10 @@ var readDir = (path) => {
                         }
                         var fileName = name + '_' + (foundName ? nameCounter[name] : noNameCounter) + '.' + fileExtension;
 
-                        fs.copy(path + '/' + file, configs['destination'] + '/' + (configs['group'] && groupName ? groupName + '/' : '') + fileName, (error) => {
+                        var destination = configs['destination'] + '/' + (configs['group'] && groupName ? groupName + '/' : '') + fileName
+                        fs.copy(path + '/' + file, destination, (error) => {
                             if(error) { console.log(error); }
-                            console.log(Math.round(photoCounter / totalPhotos * 100).toString() + '% Copied ' + path  + '/' + file + ' to ' + configs['destination'] + '/' + fileName)
+                            console.log(Math.round(photoCounter / totalPhotos * 100).toString() + '% Copied ' + path  + '/' + file + ' to ' + destination + '/' + fileName)
                             resolve()
                         })
                     }
